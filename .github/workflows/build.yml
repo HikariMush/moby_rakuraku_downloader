@@ -26,14 +26,15 @@ jobs:
       - name: .exe をビルド
         run: pyinstaller --onefile --name moby_rakuraku_downloader --console downloader.py
 
-      - name: ffmpeg をセットアップ
-        uses: AnimMouse/setup-ffmpeg@v1
-
-      - name: ffmpeg.exe を dist フォルダにコピー
+      - name: ffmpeg をダウンロードして dist に配置
         shell: pwsh
         run: |
-          $ffmpegPath = (Get-Command ffmpeg).Source
-          Copy-Item $ffmpegPath dist\ffmpeg.exe
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extracted
+          $ffmpegExe = Get-ChildItem -Path ffmpeg_extracted -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ffmpegExe.FullName dist\ffmpeg.exe
+          Write-Host "ffmpeg.exe copied from: $($ffmpegExe.FullName)"
 
       - name: リリースを作成して .exe をアップロード
         uses: softprops/action-gh-release@v2
@@ -44,9 +45,10 @@ jobs:
 
             ### ダウンロード手順（Windows）
             1. 下の `moby_rakuraku_downloader.exe` をダウンロード
-            2. 同じフォルダに `ffmpeg.exe` も一緒に入っているので、**2つのファイルを同じフォルダ**に置く
-            3. `moby_rakuraku_downloader.exe` をダブルクリック
-            4. 黒い画面が開いたら SoundCloud のプレイリスト URL を貼り付けて Enter
+            2. `ffmpeg.exe` も同じフォルダにダウンロード
+            3. **2つのファイルを同じフォルダ**に置く
+            4. `moby_rakuraku_downloader.exe` をダブルクリック
+            5. 黒い画面が開いたら SoundCloud のプレイリスト URL を貼り付けて Enter
           files: |
             dist/moby_rakuraku_downloader.exe
             dist/ffmpeg.exe
