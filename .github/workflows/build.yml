@@ -1,0 +1,48 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # v1.0, v1.1 などのタグを付けたら自動ビルド＆リリース
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: コードをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: .exe をビルド
+        run: pyinstaller --onefile --name moby_rakuraku_downloader --console downloader.py
+
+      - name: ffmpeg をダウンロードして dist に配置
+        run: |
+          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
+          7z x ffmpeg.zip -offmpeg_tmp
+          copy ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe dist\ffmpeg.exe
+
+      - name: リリースを作成して .exe をアップロード
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## 🎵 moby_rakuraku_downloader ${{ github.ref_name }}
+
+            ### ダウンロード手順（Windows）
+            1. 下の `moby_rakuraku_downloader.exe` をダウンロード
+            2. 同じフォルダに `ffmpeg.exe` も一緒に入っているので、**2つのファイルを同じフォルダ**に置く
+            3. `moby_rakuraku_downloader.exe` をダブルクリック
+            4. 黒い画面が開いたら SoundCloud のプレイリスト URL を貼り付けて Enter
+          files: |
+            dist/moby_rakuraku_downloader.exe
+            dist/ffmpeg.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
