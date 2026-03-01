@@ -3,7 +3,10 @@ name: Build & Release
 on:
   push:
     tags:
-      - 'v*'   # v1.0, v1.1 などのタグを付けたら自動ビルド＆リリース
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -23,11 +26,14 @@ jobs:
       - name: .exe をビルド
         run: pyinstaller --onefile --name moby_rakuraku_downloader --console downloader.py
 
-      - name: ffmpeg をダウンロードして dist に配置
+      - name: ffmpeg をセットアップ
+        uses: AnimMouse/setup-ffmpeg@v1
+
+      - name: ffmpeg.exe を dist フォルダにコピー
+        shell: pwsh
         run: |
-          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -o ffmpeg.zip
-          7z x ffmpeg.zip -offmpeg_tmp
-          copy ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe dist\ffmpeg.exe
+          $ffmpegPath = (Get-Command ffmpeg).Source
+          Copy-Item $ffmpegPath dist\ffmpeg.exe
 
       - name: リリースを作成して .exe をアップロード
         uses: softprops/action-gh-release@v2
@@ -44,5 +50,3 @@ jobs:
           files: |
             dist/moby_rakuraku_downloader.exe
             dist/ffmpeg.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
