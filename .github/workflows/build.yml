@@ -43,7 +43,7 @@ jobs:
       - name: リリースを作成して .exe をアップロード
         uses: softprops/action-gh-release@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           name: Release ${{ github.ref_name }}
           body: |
             ## 🎵 moby_rakuraku_downloader ${{ github.ref_name }}
