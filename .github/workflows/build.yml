@@ -40,21 +40,43 @@ jobs:
       - name: .exe をビルド
         run: pyinstaller --onefile --add-binary "${{ steps.fetch_ffmpeg.outputs.ffmpeg_path }};." --name moby_rakuraku_downloader --noconsole downloader.py
 
+      - name: リリース本文を生成
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $body = @"
+          ## 🎵 moby_rakuraku_downloader $env:TAG_NAME
+
+          ### ダウンロード手順（Windows）
+          1. 下の `moby_rakuraku_downloader.exe` をダウンロード
+          2. `moby_rakuraku_downloader.exe` をダブルクリック
+          3. URL を貼り付けて「ダウンロード開始」をクリック
+
+          ### ドキュメント
+          - [PC初心者向け README](README_BEGINNER.md)
+          - [開発者向け README](README_DEVELOPER.md)
+          - [リリースノート](RELEASE_NOTES.md)
+
+          ### 追加された機能
+          "@
+          $body | Set-Content -Path release_body.md -Encoding utf8
+
+          $notes = Get-Content RELEASE_NOTES.md -Encoding utf8
+          $marker = ($notes | Select-String -Pattern '^### 新機能$' | Select-Object -First 1).LineNumber
+          if ($marker) {
+            $featureLines = $notes[$marker..($notes.Length - 1)]
+            $featureLines | Add-Content -Path release_body.md -Encoding utf8
+          } else {
+            Add-Content -Path release_body.md -Value "- 追加機能は RELEASE_NOTES.md を参照してください。"
+          }
+
       - name: リリースを作成して .exe をアップロード
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          body: |
-            ## 🎵 moby_rakuraku_downloader ${{ github.ref_name }}
-
-            ### ダウンロード手順（Windows）
-            1. 下の `moby_rakuraku_downloader.exe` をダウンロード
-            2. `moby_rakuraku_downloader.exe` をダブルクリック
-            3. URL を貼り付けて「ダウンロード開始」をクリック
-
-            ### 重要
-            - この配布物は `ffmpeg` を同梱した単体実行ファイルです。
-            - Python を別途インストールする必要はありません。
+          body_path: release_body.md
           files: |
             dist/moby_rakuraku_downloader.exe

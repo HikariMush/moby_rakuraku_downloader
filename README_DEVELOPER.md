@@ -64,6 +64,8 @@ python -m unittest tests.test_downloader
 
 ## リリース手順
 
+このリポジトリでは、タグを `v*` 形式でプッシュすると GitHub Actions が自動的にビルドとリリースを作成します。
+
 1. 変更をコミット
 2. 新しいタグを作成
 
@@ -73,7 +75,10 @@ git push origin main
 git push origin v1.1.0
 ```
 
-3. GitHub リリースページでタグをベースにリリースを作成
+3. GitHub Actions が `.exe` をビルドし、リリース本文を自動生成してリリースを作成します。
+
+- リリース本文には `README_BEGINNER.md`/`README_DEVELOPER.md` のリンクが含まれます。
+- `RELEASE_NOTES.md` の `### 新機能` セクションから、追加された機能の説明も自動的に挿入されます。
 
 ## 変更履歴とリリースノート
 
