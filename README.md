@@ -71,6 +71,11 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+### ドキュメント
+
+- PC初心者向け: `README_BEGINNER.md`
+- 開発者向け: `README_DEVELOPER.md`
+
 ### このリリースで追加した機能
 
 - `--format` / `-f` で `mp3` / `wav` の出力形式を選択可能
