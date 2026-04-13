@@ -63,10 +63,22 @@ jobs:
           $body | Set-Content -Path release_body.md -Encoding utf8
 
           $notes = Get-Content RELEASE_NOTES.md -Encoding utf8
-          $marker = ($notes | Select-String -Pattern '^### 新機能$' | Select-Object -First 1).LineNumber
-          if ($marker) {
-            $featureLines = $notes[$marker..($notes.Length - 1)]
-            $featureLines | Add-Content -Path release_body.md -Encoding utf8
+          $tagLine = "## $env:TAG_NAME"
+          $startLine = ($notes | Select-String -Pattern [regex]::Escape($tagLine) | Select-Object -First 1).LineNumber
+          if ($startLine) {
+            $sectionLines = @()
+            for ($i = $startLine; $i -le $notes.Length; $i++) {
+              $line = $notes[$i - 1]
+              if ($i -gt $startLine -and $line -match '^##\s+') {
+                break
+              }
+              $sectionLines += $line
+            }
+            if ($sectionLines.Count -gt 0) {
+              $sectionLines | Add-Content -Path release_body.md -Encoding utf8
+            } else {
+              Add-Content -Path release_body.md -Value "- 追加機能は RELEASE_NOTES.md を参照してください。"
+            }
           } else {
             Add-Content -Path release_body.md -Value "- 追加機能は RELEASE_NOTES.md を参照してください。"
           }
