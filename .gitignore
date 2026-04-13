@@ -3,6 +3,10 @@ dist/
 build/
 *.spec
 
+# ffmpeg バイナリ
+ffmpeg
+ffmpeg.exe
+
 # Python
 __pycache__/
 *.py[cod]

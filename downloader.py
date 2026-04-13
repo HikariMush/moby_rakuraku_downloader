@@ -9,8 +9,12 @@ import os
 import platform
 import re
 import sys
+import threading
+import tkinter as tk
 from datetime import datetime, timezone
 from pathlib import Path
+from shutil import which
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import yt_dlp
 from rich.console import Console
@@ -44,6 +48,26 @@ def get_default_output_dir() -> Path:
     return Path.home() / "Downloads" / "SoundCloud"
 
 
+def get_ffmpeg_binary_name() -> str:
+    """OS に応じた ffmpeg 実行ファイル名を返す。"""
+    return "ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"
+
+
+def get_ffmpeg_path() -> Path | None:
+    """バンドル済みの ffmpeg を優先して返す。なければ PATH 上の ffmpeg を探す。"""
+    ffmpeg_name = get_ffmpeg_binary_name()
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    bundled_ffmpeg = bundle_dir / ffmpeg_name
+    if bundled_ffmpeg.exists():
+        return bundled_ffmpeg
+
+    system_ffmpeg = which(ffmpeg_name)
+    if system_ffmpeg:
+        return Path(system_ffmpeg)
+
+    return None
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="moby_rakuraku_downloader",
@@ -74,10 +98,233 @@ def prompt_for_playlist_url() -> str:
     return playlist_url
 
 
+def default_log(message: str) -> None:
+    console.print(message)
+
+
+def default_progress(current: int, total: int, track_info: str) -> None:
+    console.print(f"[{current:02d}/{total:02d}] {track_info}")
+
+
+def download_playlist(
+    playlist_url: str,
+    output_base: Path,
+    ffmpeg_path: Path,
+    log_callback=None,
+    progress_callback=None,
+) -> tuple[dict, Path]:
+    if log_callback is None:
+        log_callback = default_log
+    if progress_callback is None:
+        progress_callback = default_progress
+
+    log_callback("🔍 プレイリスト情報を取得中...")
+    playlist_info = fetch_playlist_info(playlist_url)
+
+    playlist_title: str = playlist_info.get("title") or "Unknown Playlist"
+    entries = playlist_info.get("entries") or []
+    total = len(entries)
+
+    log_callback(f"📋 プレイリスト: {playlist_title}")
+    log_callback(f"🔍 {total} 曲 を解析中...")
+
+    playlist_dir = output_base / sanitize_filename(playlist_title)
+    playlist_dir.mkdir(parents=True, exist_ok=True)
+    log_callback(f"📁 ダウンロード先: {playlist_dir}")
+
+    tracks_result: list[dict] = []
+    downloaded_count = 0
+    skipped_count = 0
+    error_count = 0
+
+    for idx, entry in enumerate(entries, start=1):
+        track_url: str = entry.get("url") or entry.get("webpage_url") or ""
+        raw_title: str = entry.get("title") or "Unknown Title"
+        raw_artist: str = (
+            entry.get("uploader")
+            or entry.get("artist")
+            or entry.get("creator")
+            or "Unknown Artist"
+        )
+        duration: int | None = entry.get("duration")
+
+        display_label = f"{raw_artist} - {raw_title}"
+        progress_callback(idx, total, display_label[:80])
+
+        base_name = build_filename(idx, raw_artist, raw_title)
+        outtmpl = str(playlist_dir / base_name)
+
+        try:
+            download_track(track_url, outtmpl, ffmpeg_path)
+            filename = base_name + ".mp3"
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": "downloaded",
+                    "filename": filename,
+                    "duration_seconds": duration,
+                }
+            )
+            downloaded_count += 1
+        except yt_dlp.utils.DownloadError as exc:
+            reason = classify_error(str(exc))
+            if reason in ("download_disabled", "region_restricted", "private_track"):
+                status = "skipped"
+                skipped_count += 1
+            else:
+                status = "error"
+                error_count += 1
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": status,
+                    "reason": reason,
+                }
+            )
+        except Exception as exc:
+            reason = classify_error(str(exc))
+            error_count += 1
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": "error",
+                    "reason": reason,
+                }
+            )
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    metadata = {
+        "playlist_url": playlist_url,
+        "playlist_title": playlist_title,
+        "downloaded_at": now_utc,
+        "total_tracks": total,
+        "downloaded_count": downloaded_count,
+        "skipped_count": skipped_count,
+        "error_count": error_count,
+        "tracks": tracks_result,
+    }
+    save_metadata(playlist_dir, metadata)
+    report_path = save_report(playlist_dir, metadata)
+
+    log_callback("✅ ダウンロード処理が完了しました。")
+    log_callback(f"📁 保存先: {playlist_dir}")
+    log_callback(f"📄 レポート: {report_path}")
+
+    return metadata, report_path
+
+
+def run_gui() -> None:
+    root = tk.Tk()
+    root.title("moby_rakuraku_downloader")
+    root.geometry("680x440")
+    root.resizable(False, False)
+
+    tk.Label(root, text="SoundCloud プレイリスト URL:", font=(None, 11)).pack(anchor="w", padx=12, pady=(12, 0))
+    url_entry = tk.Entry(root, width=88)
+    url_entry.pack(padx=12, pady=(4, 8))
+
+    tk.Label(root, text="保存先フォルダ:", font=(None, 11)).pack(anchor="w", padx=12, pady=(4, 0))
+    output_frame = tk.Frame(root)
+    output_frame.pack(fill="x", padx=12, pady=(4, 8))
+    output_var = tk.StringVar(value=str(get_default_output_dir()))
+    output_entry = tk.Entry(output_frame, textvariable=output_var, width=75)
+    output_entry.pack(side="left", fill="x", expand=True)
+
+    def choose_output_dir() -> None:
+        selected = filedialog.askdirectory(initialdir=str(Path.home()))
+        if selected:
+            output_var.set(selected)
+
+    tk.Button(output_frame, text="選択", command=choose_output_dir, width=8).pack(side="right", padx=(8, 0))
+
+    status_var = tk.StringVar(value="準備完了")
+    status_label = tk.Label(root, textvariable=status_var, anchor="w")
+    status_label.pack(fill="x", padx=12, pady=(0, 8))
+
+    progress_bar = tk.ttk.Progressbar(root, mode="determinate")
+    progress_bar.pack(fill="x", padx=12, pady=(0, 8))
+
+    tk.Label(root, text="ログ:", font=(None, 11)).pack(anchor="w", padx=12, pady=(0, 0))
+    log_text = scrolledtext.ScrolledText(root, state="disabled", wrap="word", height=12)
+    log_text.pack(fill="both", padx=12, pady=(4, 12), expand=True)
+
+    def append_log(message: str) -> None:
+        log_text.config(state="normal")
+        log_text.insert("end", message + "\n")
+        log_text.see("end")
+        log_text.config(state="disabled")
+
+    def gui_log(message: str) -> None:
+        root.after(0, lambda: append_log(message))
+
+    def gui_progress(current: int, total: int, track_info: str) -> None:
+        root.after(0, lambda: progress_bar.config(value=(current / total) * 100 if total else 0))
+        root.after(0, lambda: status_var.set(f"{current}/{total} - {track_info}"))
+
+    def set_controls(enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        start_button.config(state=state)
+        url_entry.config(state=state)
+        output_entry.config(state=state)
+
+    def on_start() -> None:
+        playlist_url = url_entry.get().strip()
+        if not playlist_url:
+            messagebox.showwarning("入力が必要です", "SoundCloud プレイリストURLを入力してください。")
+            return
+
+        output_base = Path(output_var.get()).expanduser()
+        if not output_base.exists():
+            try:
+                output_base.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                messagebox.showerror("保存先エラー", f"保存先フォルダを作成できませんでした:\n{exc}")
+                return
+
+        set_controls(False)
+        append_log("▶ ダウンロードを開始します。")
+        status_var.set("ダウンロード中...")
+        progress_bar.config(value=0)
+
+        def worker() -> None:
+            try:
+                ffmpeg_path = get_ffmpeg_path()
+                if ffmpeg_path is None:
+                    raise RuntimeError("ffmpeg が見つかりません。実行ファイルの同梱ビルドを使用してください。")
+                download_playlist(
+                    playlist_url,
+                    output_base,
+                    ffmpeg_path,
+                    log_callback=gui_log,
+                    progress_callback=gui_progress,
+                )
+                root.after(0, lambda: messagebox.showinfo("完了", "ダウンロードが完了しました。ログを確認してください。"))
+            except Exception as exc:
+                root.after(0, lambda: messagebox.showerror("エラー", str(exc)))
+                gui_log(f"❌ エラー: {exc}")
+            finally:
+                root.after(0, lambda: set_controls(True))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    start_button = tk.Button(root, text="ダウンロード開始", command=on_start, width=18)
+    start_button.pack(pady=(0, 8))
+
+    root.mainloop()
+
+
 def fetch_playlist_info(playlist_url: str) -> dict:
     """プレイリストのメタデータ（楽曲リスト）を取得する。"""
     ydl_opts = {
-        "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
     }
@@ -93,7 +340,7 @@ def build_filename(index: int, artist: str, title: str) -> str:
     return f"{index:02d}_{artist_s} - {title_s}"
 
 
-def download_track(track_url: str, output_path: str) -> None:
+def download_track(track_url: str, output_path: str, ffmpeg_path: Path | None = None) -> None:
     """単一楽曲をダウンロードして MP3 に変換する。"""
     ydl_opts = {
         "format": "bestaudio/best",
@@ -108,6 +355,9 @@ def download_track(track_url: str, output_path: str) -> None:
         "quiet": True,
         "no_warnings": True,
     }
+    if ffmpeg_path is not None:
+        ydl_opts["ffmpeg_location"] = str(ffmpeg_path)
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([track_url])
 
@@ -203,6 +453,10 @@ def print_summary(
 
 
 def main() -> None:
+    if len(sys.argv) == 1:
+        run_gui()
+        return
+
     args = parse_args()
     playlist_url: str | None = args.playlist_url
     if playlist_url is None:
@@ -210,148 +464,23 @@ def main() -> None:
 
     output_base: Path = Path(args.output).expanduser() if args.output else get_default_output_dir()
 
-    # ヘッダー表示
-    console.print(Panel("[bold magenta]🎵 moby_rakuraku_downloader[/bold magenta]", expand=False))
-
-    # プレイリスト情報取得
-    console.print("🔍 プレイリスト情報を取得中...")
-    try:
-        playlist_info = fetch_playlist_info(playlist_url)
-    except Exception as exc:
-        console.print(f"[bold red]❌ プレイリストの取得に失敗しました: {exc}[/bold red]")
+    ffmpeg_path = get_ffmpeg_path()
+    if ffmpeg_path is None:
+        console.print(
+            "[bold red]❌ ffmpeg が見つかりません。ffmpeg.exe を同梱したビルドを使うか、ffmpeg をインストールしてください。[/bold red]"
+        )
         sys.exit(1)
 
-    playlist_title: str = playlist_info.get("title") or "Unknown Playlist"
-    entries = playlist_info.get("entries") or []
-    total = len(entries)
-
-    console.print(f"📋 プレイリスト: [bold]{playlist_title}[/bold]")
-    console.print(f"🔍 [bold]{total}[/bold]曲 を解析中...")
-    console.print()
-
-    # 保存先ディレクトリを作成
-    playlist_dir = output_base / sanitize_filename(playlist_title)
-    playlist_dir.mkdir(parents=True, exist_ok=True)
-
-    # 結果を格納するリスト
-    tracks_result: list[dict] = []
-    downloaded_count = 0
-    skipped_count = 0
-    error_count = 0
-
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TextColumn("| {task.fields[track_info]}"),
-        console=console,
-        transient=False,
-    ) as progress:
-        task = progress.add_task(
-            f"[{0:02d}/{total:02d}]",
-            total=total,
-            track_info="",
+    console.print(Panel("[bold magenta]🎵 moby_rakuraku_downloader[/bold magenta]", expand=False))
+    try:
+        download_playlist(
+            playlist_url,
+            output_base,
+            ffmpeg_path,
         )
-
-        for idx, entry in enumerate(entries, start=1):
-            track_url: str = entry.get("url") or entry.get("webpage_url") or ""
-            raw_title: str = entry.get("title") or "Unknown Title"
-            raw_artist: str = (
-                entry.get("uploader")
-                or entry.get("artist")
-                or entry.get("creator")
-                or "Unknown Artist"
-            )
-            duration: int | None = entry.get("duration")
-
-            display_label = f"{raw_artist} - {raw_title}"
-            progress.update(
-                task,
-                description=f"[{idx:02d}/{total:02d}]",
-                track_info=display_label[:60],
-            )
-
-            # ファイル名生成
-            base_name = build_filename(idx, raw_artist, raw_title)
-            outtmpl = str(playlist_dir / base_name)  # yt-dlp が .mp3 を付加する
-
-            try:
-                download_track(track_url, outtmpl)
-                filename = base_name + ".mp3"
-                tracks_result.append(
-                    {
-                        "index": idx,
-                        "title": raw_title,
-                        "artist": raw_artist,
-                        "url": track_url,
-                        "status": "downloaded",
-                        "filename": filename,
-                        "duration_seconds": duration,
-                    }
-                )
-                downloaded_count += 1
-            except yt_dlp.utils.DownloadError as exc:
-                reason = classify_error(str(exc))
-                # スキップ扱い（download_disabled / region_restricted / private）か
-                # エラー扱い（network_error / unknown）か判定
-                if reason in ("download_disabled", "region_restricted", "private_track"):
-                    status = "skipped"
-                    skipped_count += 1
-                else:
-                    status = "error"
-                    error_count += 1
-                tracks_result.append(
-                    {
-                        "index": idx,
-                        "title": raw_title,
-                        "artist": raw_artist,
-                        "url": track_url,
-                        "status": status,
-                        "reason": reason,
-                    }
-                )
-            except Exception as exc:
-                reason = classify_error(str(exc))
-                error_count += 1
-                tracks_result.append(
-                    {
-                        "index": idx,
-                        "title": raw_title,
-                        "artist": raw_artist,
-                        "url": track_url,
-                        "status": "error",
-                        "reason": reason,
-                    }
-                )
-            finally:
-                progress.advance(task)
-
-    # metadata.json 保存
-    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    metadata = {
-        "playlist_url": playlist_url,
-        "playlist_title": playlist_title,
-        "downloaded_at": now_utc,
-        "total_tracks": total,
-        "downloaded_count": downloaded_count,
-        "skipped_count": skipped_count,
-        "error_count": error_count,
-        "tracks": tracks_result,
-    }
-    save_metadata(playlist_dir, metadata)
-
-    # download_report.txt 保存
-    report_path = save_report(playlist_dir, metadata)
-
-    # サマリー表示
-    print_summary(
-        playlist_title,
-        playlist_dir,
-        report_path,
-        downloaded_count,
-        skipped_count,
-        error_count,
-    )
+    except Exception as exc:
+        console.print(f"[bold red]❌ エラー: {exc}[/bold red]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

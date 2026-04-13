@@ -2,6 +2,10 @@
 
 SoundCloud のプレイリストURLを渡すだけで、ダウンロード可能な楽曲を自動判定して MP3 で一括保存するツールです。
 
+> 最も簡単なのは、ビルド済みの単体実行ファイルを配布することです。
+> `dist/moby_rakuraku_downloader.exe` / `dist/moby_rakuraku_downloader` は Python と ffmpeg を内包できるため、ユーザー側に別途インストールを要求しません。
+> ダブルクリックだけで GUI が起動し、コマンドライン不要で操作できます。
+
 ---
 
 ## 必要なもの
@@ -14,8 +18,10 @@ SoundCloud のプレイリストURLを渡すだけで、ダウンロード可能
 ### ffmpeg のインストール
 
 **Windows:**
-1. https://ffmpeg.org/download.html からダウンロード
-2. `ffmpeg.exe` を `moby_rakuraku_downloader.exe` と同じフォルダに置く
+1. `python download_ffmpeg.py` を実行して `ffmpeg.exe` を自動取得できます。
+2. あるいは https://ffmpeg.org/download.html からダウンロードして、リポジトリルートに `ffmpeg.exe` を置くか、PATH に追加してください。
+
+ビルド済みの Windows `.exe` は `ffmpeg.exe` を同梱できるようになっており、`dist/moby_rakuraku_downloader.exe` は単体で動作します。
 
 **Mac:**
 ```bash
@@ -26,6 +32,8 @@ brew install ffmpeg
 ```bash
 sudo apt install ffmpeg
 ```
+
+`download_ffmpeg.py` は Windows / Linux / macOS のビルド向けに、最新の ffmpeg ビルドを自動で取得します。ソースから実行したい場合は、`ffmpeg` が PATH にある必要があります。
 
 ---
 
@@ -39,14 +47,36 @@ cd moby_rakuraku_downloader
 # 2. 依存パッケージをインストール
 pip install -r requirements.txt
 
-# 3. .exe をビルド（Windows）
+# 3. ffmpeg を自動取得
+python download_ffmpeg.py
+
+# 4. .exe をビルド（Windows）
 build.bat
 
-# 3. バイナリをビルド（Mac / Linux）
+# 4. バイナリをビルド（Mac / Linux）
 bash build.sh
 ```
 
 ビルド完了後、`dist/` フォルダに実行ファイルが生成されます。
+
+`dist/moby_rakuraku_downloader.exe` / `dist/moby_rakuraku_downloader` は Python を内包した単体実行ファイルです。配布先ユーザーは Python の追加インストール不要で実行できます。
+
+## 配布（デプロイ）
+
+1. `main` ブランチを最新にしておく
+2. 新しいタグを作成して GitHub にプッシュする
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+3. GitHub Actions が `v*` タグのプッシュを検知してビルドを実行する
+4. ビルドが完了すると GitHub Releases に `moby_rakuraku_downloader.exe` がアップロードされる
+5. リリースページから `moby_rakuraku_downloader.exe` をダウンロードする
+
+このリリース配布物は `ffmpeg` を同梱した単体実行ファイルです。
+ユーザーは `.exe` をダブルクリックするだけで GUI が起動し、コマンドライン操作は不要です。
 
 ---
 
@@ -55,10 +85,11 @@ bash build.sh
 ### .exe をダブルクリックして使う（友人向け・かんたん手順）
 
 1. `moby_rakuraku_downloader.exe` をダブルクリック
-2. 黒いターミナル画面が開く
-3. SoundCloud のプレイリストURLを貼り付けて **Enter**
-4. 自動でダウンロードが始まる
-5. 完了したらターミナルを閉じてOK
+2. GUI ウィンドウが開きます
+3. SoundCloud のプレイリストURLを貼り付ける
+4. 保存先を確認して「ダウンロード開始」をクリック
+5. 進捗とログを見ながら待つ
+6. 完了メッセージが出たらウィンドウを閉じてOK
 
 ### コマンドラインで使う（開発者向け）
 

@@ -11,7 +11,30 @@ pip install -r requirements.txt
 
 echo ""
 echo "[2/2] バイナリをビルド中..."
-pyinstaller --onefile --name moby_rakuraku_downloader --console downloader.py
+FFMPEG_PATH=""
+if [ -f "$(pwd)/ffmpeg" ]; then
+  FFMPEG_PATH="$(pwd)/ffmpeg"
+fi
+if [ -z "$FFMPEG_PATH" ]; then
+  FFMPEG_PATH="$(command -v ffmpeg 2>/dev/null || true)"
+fi
+if [ -z "$FFMPEG_PATH" ]; then
+  echo "[WARN] ffmpeg が見つかりません。download_ffmpeg.py で自動取得します..."
+  python download_ffmpeg.py
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] ffmpeg の取得に失敗しました。"
+    exit 1
+  fi
+  if [ -f "$(pwd)/ffmpeg" ]; then
+    FFMPEG_PATH="$(pwd)/ffmpeg"
+  fi
+fi
+if [ -z "$FFMPEG_PATH" ]; then
+  echo "[ERROR] ffmpeg が見つかりません。リポジトリルートに ffmpeg を置くか、PATH に追加してください。"
+  exit 1
+fi
+
+pyinstaller --onefile --add-binary "$FFMPEG_PATH:." --name moby_rakuraku_downloader --noconsole downloader.py
 
 echo ""
 echo "========================================"
