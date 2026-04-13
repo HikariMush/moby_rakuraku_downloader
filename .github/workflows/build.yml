@@ -64,8 +64,9 @@ jobs:
 
           $notes = Get-Content RELEASE_NOTES.md -Encoding utf8
           $tagLine = "## $env:TAG_NAME"
-          $startLine = ($notes | Select-String -Pattern [regex]::Escape($tagLine) | Select-Object -First 1).LineNumber
-          if ($startLine) {
+          $match = $notes | Select-String -SimpleMatch $tagLine | Select-Object -First 1
+          if ($match) {
+            $startLine = $match.LineNumber
             $sectionLines = @()
             for ($i = $startLine; $i -le $notes.Length; $i++) {
               $line = $notes[$i - 1]
