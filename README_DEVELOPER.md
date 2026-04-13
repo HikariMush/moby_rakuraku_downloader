@@ -72,9 +72,9 @@ python -m unittest tests.test_downloader
 4. 新しいタグを作成
 
 ```bash
-git tag v1.1.0
+git tag vX.Y.Z
 git push origin main
-git push origin v1.1.0
+git push origin vX.Y.Z
 ```
 
 5. GitHub Actions が `.exe` をビルドし、リリース本文を自動生成してリリースを作成します。
@@ -85,13 +85,6 @@ git push origin v1.1.0
 ## CONTRIBUTING ガイドライン
 
 開発は `CONTRIBUTING.md` に記載したルールに従ってください。
-
-## 変更履歴とリリースノート
-
-3. GitHub Actions が `.exe` をビルドし、リリース本文を自動生成してリリースを作成します。
-
-- リリース本文には `README_BEGINNER.md`/`README_DEVELOPER.md` のリンクが含まれます。
-- `RELEASE_NOTES.md` の `### 新機能` セクションから、追加された機能の説明も自動的に挿入されます。
 
 ## 変更履歴とリリースノート
 

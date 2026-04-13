@@ -67,8 +67,9 @@ bash build.sh
 2. 新しいタグを作成して GitHub にプッシュする
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
 ```
 
 ### ドキュメント
