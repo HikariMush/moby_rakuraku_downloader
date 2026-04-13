@@ -71,6 +71,17 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+### このリリースで追加した機能
+
+- `--format` / `-f` で `mp3` / `wav` の出力形式を選択可能
+- `--bitrate` / `-b` で MP3 出力時に最大 `320kbps` を指定可能
+- 元音源の形式/ビットレートを検出してログ表示
+- GUI でも出力形式とビットレートを選択可能
+
+## リリースノート
+
+詳細は `RELEASE_NOTES.md` を参照してください。
+
 3. GitHub Actions が `v*` タグのプッシュを検知してビルドを実行する
 4. ビルドが完了すると GitHub Releases に `moby_rakuraku_downloader.exe` がアップロードされる
 5. リリースページから `moby_rakuraku_downloader.exe` をダウンロードする
@@ -96,6 +107,12 @@ git push origin v1.0.0
 ```bash
 # 基本実行（デフォルト保存先：~/Downloads/SoundCloud/）
 python downloader.py https://soundcloud.com/user/sets/playlist-name
+
+# MP3 320kbps で出力する場合
+python downloader.py https://soundcloud.com/user/sets/playlist-name --format mp3 --bitrate 320
+
+# WAV で出力する場合
+python downloader.py https://soundcloud.com/user/sets/playlist-name --format wav
 
 # 保存先を指定する場合
 python downloader.py https://soundcloud.com/user/sets/playlist-name --output ~/Music/References

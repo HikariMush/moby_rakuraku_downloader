@@ -86,6 +86,20 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=None,
         help=f"保存先ディレクトリ（デフォルト: {get_default_output_dir()}）",
     )
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=["mp3", "wav"],
+        default="mp3",
+        help="出力音声形式（mp3 または wav）",
+    )
+    parser.add_argument(
+        "--bitrate",
+        "-b",
+        choices=["128", "192", "256", "320"],
+        default="192",
+        help="MP3 出力時のビットレート（kbps）",
+    )
     return parser.parse_args(argv)
 
 
@@ -110,6 +124,8 @@ def download_playlist(
     playlist_url: str,
     output_base: Path,
     ffmpeg_path: Path,
+    audio_format: str = "mp3",
+    audio_bitrate: str = "192",
     log_callback=None,
     progress_callback=None,
 ) -> tuple[dict, Path]:
@@ -155,8 +171,16 @@ def download_playlist(
         outtmpl = str(playlist_dir / base_name)
 
         try:
-            download_track(track_url, outtmpl, ffmpeg_path)
-            filename = base_name + ".mp3"
+            track_info = fetch_track_info(track_url, ffmpeg_path)
+            source_format = track_info.get("ext") or "unknown"
+            source_bitrate = track_info.get("abr") or track_info.get("tbr")
+            if source_bitrate is not None:
+                source_desc = f"{source_format} {int(source_bitrate)}kbps"
+            else:
+                source_desc = source_format
+            log_callback(f"🎧 原音源: {source_desc}")
+            download_track(track_url, outtmpl, ffmpeg_path, audio_format, audio_bitrate)
+            filename = base_name + f".{audio_format}"
             tracks_result.append(
                 {
                     "index": idx,
@@ -246,6 +270,28 @@ def run_gui() -> None:
 
     tk.Button(output_frame, text="選択", command=choose_output_dir, width=8).pack(side="right", padx=(8, 0))
 
+    options_frame = tk.Frame(root)
+    options_frame.pack(fill="x", padx=12, pady=(0, 8))
+
+    tk.Label(options_frame, text="出力形式:", font=(None, 11)).grid(row=0, column=0, sticky="w")
+    format_var = tk.StringVar(value="mp3")
+    format_select = ttk.Combobox(options_frame, textvariable=format_var, values=["mp3", "wav"], state="readonly", width=8)
+    format_select.grid(row=0, column=1, sticky="w", padx=(8, 16))
+
+    tk.Label(options_frame, text="ビットレート:", font=(None, 11)).grid(row=0, column=2, sticky="w")
+    bitrate_var = tk.StringVar(value="192")
+    bitrate_select = ttk.Combobox(options_frame, textvariable=bitrate_var, values=["128", "192", "256", "320"], state="readonly", width=6)
+    bitrate_select.grid(row=0, column=3, sticky="w", padx=(8, 0))
+
+    def update_bitrate_state(event=None) -> None:
+        if format_var.get() == "wav":
+            bitrate_select.config(state="disabled")
+        else:
+            bitrate_select.config(state="readonly")
+
+    format_select.bind("<<ComboboxSelected>>", update_bitrate_state)
+    update_bitrate_state()
+
     status_var = tk.StringVar(value="準備完了")
     status_label = tk.Label(root, textvariable=status_var, anchor="w")
     status_label.pack(fill="x", padx=12, pady=(0, 8))
@@ -304,6 +350,8 @@ def run_gui() -> None:
                     playlist_url,
                     output_base,
                     ffmpeg_path,
+                    audio_format=format_var.get(),
+                    audio_bitrate=bitrate_var.get(),
                     log_callback=gui_log,
                     progress_callback=gui_progress,
                 )
@@ -333,6 +381,19 @@ def fetch_playlist_info(playlist_url: str) -> dict:
     return info
 
 
+def fetch_track_info(track_url: str, ffmpeg_path: Path | None = None) -> dict:
+    """楽曲のメタ情報を取得する。"""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if ffmpeg_path is not None:
+        ydl_opts["ffmpeg_location"] = str(ffmpeg_path)
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        return ydl.extract_info(track_url, download=False)
+
+
 def build_filename(index: int, artist: str, title: str) -> str:
     """規則に従ったファイル名を生成する（拡張子なし）。"""
     artist_s = sanitize_filename(artist or "unknown_artist")
@@ -340,17 +401,24 @@ def build_filename(index: int, artist: str, title: str) -> str:
     return f"{index:02d}_{artist_s} - {title_s}"
 
 
-def download_track(track_url: str, output_path: str, ffmpeg_path: Path | None = None) -> None:
-    """単一楽曲をダウンロードして MP3 に変換する。"""
+def download_track(
+    track_url: str,
+    output_path: str,
+    ffmpeg_path: Path | None = None,
+    audio_format: str = "mp3",
+    audio_bitrate: str = "192",
+) -> None:
+    """単一楽曲をダウンロードして指定形式に変換する。"""
+    postprocessor = {
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": audio_format,
+    }
+    if audio_format == "mp3":
+        postprocessor["preferredquality"] = audio_bitrate
+
     ydl_opts = {
         "format": "bestaudio/best",
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
+        "postprocessors": [postprocessor],
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,
@@ -477,6 +545,8 @@ def main() -> None:
             playlist_url,
             output_base,
             ffmpeg_path,
+            audio_format=args.format,
+            audio_bitrate=args.bitrate,
         )
     except Exception as exc:
         console.print(f"[bold red]❌ エラー: {exc}[/bold red]")
