@@ -44,12 +44,17 @@ def get_default_output_dir() -> Path:
     return Path.home() / "Downloads" / "SoundCloud"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="moby_rakuraku_downloader",
         description="SoundCloud プレイリストを MP3 で一括ダウンロードします。",
     )
-    parser.add_argument("playlist_url", help="SoundCloud のプレイリスト URL")
+    parser.add_argument(
+        "playlist_url",
+        nargs="?",
+        default=None,
+        help="SoundCloud のプレイリスト URL",
+    )
     parser.add_argument(
         "--output",
         "-o",
@@ -57,7 +62,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"保存先ディレクトリ（デフォルト: {get_default_output_dir()}）",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def prompt_for_playlist_url() -> str:
+    """コマンドライン実行時に URL を入力させる。"""
+    playlist_url = input("SoundCloud プレイリストURLを入力してください: ").strip()
+    if not playlist_url:
+        console.print("[bold red]❌ プレイリスト URL が入力されませんでした。終了します。[/bold red]")
+        sys.exit(1)
+    return playlist_url
 
 
 def fetch_playlist_info(playlist_url: str) -> dict:
@@ -190,7 +204,10 @@ def print_summary(
 
 def main() -> None:
     args = parse_args()
-    playlist_url: str = args.playlist_url
+    playlist_url: str | None = args.playlist_url
+    if playlist_url is None:
+        playlist_url = prompt_for_playlist_url()
+
     output_base: Path = Path(args.output).expanduser() if args.output else get_default_output_dir()
 
     # ヘッダー表示
