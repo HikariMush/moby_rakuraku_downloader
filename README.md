@@ -18,8 +18,10 @@ SoundCloud のプレイリストURLを渡すだけで、ダウンロード可能
 ### ffmpeg のインストール
 
 **Windows:**
-1. `python download_ffmpeg.py` を実行して `ffmpeg.exe` を自動取得できます。
-2. あるいは https://ffmpeg.org/download.html からダウンロードして、リポジトリルートに `ffmpeg.exe` を置くか、PATH に追加してください。
+- `dist/moby_rakuraku_downloader.exe` の配布版を使う場合は、`ffmpeg` を同梱しているため、追加インストールは不要です。
+- ソース版（`python downloader.py`）を使う場合は、`ffmpeg` が PATH にある必要があります。
+  1. `python download_ffmpeg.py` を実行して `ffmpeg.exe` を自動取得できます。
+  2. あるいは https://ffmpeg.org/download.html からダウンロードして、リポジトリルートに `ffmpeg.exe` を置くか、PATH に追加してください。
 
 ビルド済みの Windows `.exe` は `ffmpeg.exe` を同梱できるようになっており、`dist/moby_rakuraku_downloader.exe` は単体で動作します。
 

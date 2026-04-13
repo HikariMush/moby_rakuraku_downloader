@@ -10,10 +10,11 @@
 
 ## はじめに準備するもの
 
-1. Windows で使う場合は、`moby_rakuraku_downloader.exe` だけをダウンロードすれば OK です。
+1. Windows の `.exe` を使う場合は、`moby_rakuraku_downloader.exe` だけをダウンロードすれば OK です。
 2. Python 版を使う場合のみ、このリポジトリをダウンロードして `python downloader.py` を実行します。
-3. `ffmpeg` が必要です。Windows の `.exe` 配布版には `ffmpeg` を同梱しています。
-   - ソース版を使う場合は `download_ffmpeg.py` で自動取得できます。
+3. Python 版（ソース実行）を使う場合は `ffmpeg` が必要です。
+   - Windows のソース版では `download_ffmpeg.py` で自動取得できます。
+   - `.exe` 配布版には `ffmpeg` を同梱しているため、別途インストールは不要です。
 
 ## 使い方（Windows の場合）
 
