@@ -2,7 +2,14 @@ import unittest
 from unittest.mock import patch
 
 from pathlib import Path
-from downloader import build_filename, download_track, parse_args, prompt_for_playlist_url, sanitize_filename
+from downloader import (
+    build_filename,
+    download_track,
+    parse_args,
+    prompt_for_playlist_url,
+    sanitize_filename,
+    validate_audio_settings,
+)
 
 
 class TestDownloader(unittest.TestCase):
@@ -30,6 +37,16 @@ class TestDownloader(unittest.TestCase):
         self.assertEqual(args.format, 'wav')
         self.assertEqual(args.bitrate, '320')
 
+    def test_validate_audio_settings_allows_mp3_bitrate(self):
+        self.assertEqual(validate_audio_settings('mp3', '320'), '320')
+
+    def test_validate_audio_settings_rejects_invalid_bitrate(self):
+        with self.assertRaises(ValueError):
+            validate_audio_settings('mp3', '500')
+
+    def test_validate_audio_settings_ignores_wav_bitrate(self):
+        self.assertIsNone(validate_audio_settings('wav', '320'))
+
     @patch('downloader.yt_dlp.YoutubeDL')
     def test_download_track_uses_requested_format_and_bitrate(self, mock_youtube_dl):
         mock_ydl = mock_youtube_dl.return_value.__enter__.return_value
@@ -44,6 +61,19 @@ class TestDownloader(unittest.TestCase):
         called_opts = mock_youtube_dl.call_args[0][0]
         self.assertEqual(called_opts['postprocessors'][0]['preferredcodec'], 'mp3')
         self.assertEqual(called_opts['postprocessors'][0]['preferredquality'], '320')
+
+    @patch('downloader.yt_dlp.YoutubeDL')
+    def test_download_track_does_not_set_bitrate_for_wav(self, mock_youtube_dl):
+        download_track(
+            'https://soundcloud.com/user/test',
+            '/tmp/out',
+            Path('/usr/bin/ffmpeg'),
+            audio_format='wav',
+            audio_bitrate='320',
+        )
+        called_opts = mock_youtube_dl.call_args[0][0]
+        self.assertEqual(called_opts['postprocessors'][0]['preferredcodec'], 'wav')
+        self.assertNotIn('preferredquality', called_opts['postprocessors'][0])
 
     @patch('builtins.input', return_value=' https://soundcloud.com/user/sets/test ')
     def test_prompt_for_playlist_url_strips_value(self, mock_input):

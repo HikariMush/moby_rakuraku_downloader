@@ -401,6 +401,23 @@ def build_filename(index: int, artist: str, title: str) -> str:
     return f"{index:02d}_{artist_s} - {title_s}"
 
 
+def validate_audio_settings(audio_format: str, audio_bitrate: str | None) -> str | None:
+    """オーディオ出力設定を検証し、MP3 の場合はビットレートを返す。"""
+    if audio_format not in ("mp3", "wav"):
+        raise ValueError(f"Unsupported audio format: {audio_format}")
+
+    if audio_format == "wav":
+        return None
+
+    if audio_bitrate is None:
+        audio_bitrate = "192"
+
+    if audio_bitrate not in ("128", "192", "256", "320"):
+        raise ValueError(f"Invalid MP3 bitrate: {audio_bitrate}")
+
+    return audio_bitrate
+
+
 def download_track(
     track_url: str,
     output_path: str,
@@ -409,12 +426,14 @@ def download_track(
     audio_bitrate: str = "192",
 ) -> None:
     """単一楽曲をダウンロードして指定形式に変換する。"""
+    validated_bitrate = validate_audio_settings(audio_format, audio_bitrate)
+
     postprocessor = {
         "key": "FFmpegExtractAudio",
         "preferredcodec": audio_format,
     }
-    if audio_format == "mp3":
-        postprocessor["preferredquality"] = audio_bitrate
+    if validated_bitrate is not None:
+        postprocessor["preferredquality"] = validated_bitrate
 
     ydl_opts = {
         "format": "bestaudio/best",
