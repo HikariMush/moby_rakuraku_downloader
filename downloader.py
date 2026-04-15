@@ -129,6 +129,8 @@ def download_playlist(
     ffmpeg_path: Path,
     audio_format: str = "mp3",
     audio_bitrate: str = "192",
+    playlist_info: dict | None = None,
+    selected_track_indices: list[int] | None = None,
     log_callback=None,
     progress_callback=None,
 ) -> tuple[dict, Path]:
@@ -137,12 +139,144 @@ def download_playlist(
     if progress_callback is None:
         progress_callback = default_progress
 
-    log_callback("🔍 プレイリスト情報を取得中...")
-    playlist_info = fetch_playlist_info(playlist_url)
+    if playlist_info is None:
+        log_callback("🔍 プレイリスト情報を取得中...")
+        playlist_info = fetch_playlist_info(playlist_url)
 
     playlist_title: str = playlist_info.get("title") or "Unknown Playlist"
     entries = playlist_info.get("entries") or []
     total = len(entries)
+    selected_set = set(selected_track_indices) if selected_track_indices is not None else None
+
+    log_callback(f"📋 プレイリスト: {playlist_title}")
+    log_callback(f"🔍 {total} 曲 を解析中...")
+
+    playlist_dir = output_base / sanitize_filename(playlist_title)
+    playlist_dir.mkdir(parents=True, exist_ok=True)
+    log_callback(f"📁 ダウンロード先: {playlist_dir}")
+
+    tracks_result: list[dict] = []
+    downloaded_count = 0
+    skipped_count = 0
+    not_selected_count = 0
+    error_count = 0
+
+    for idx, entry in enumerate(entries, start=1):
+        if selected_set is not None and idx not in selected_set:
+            raw_title = entry.get("title") or "Unknown Title"
+            raw_artist = (
+                entry.get("uploader")
+                or entry.get("artist")
+                or entry.get("creator")
+                or "Unknown Artist"
+            )
+            display_label = f"{raw_artist} - {raw_title}"
+            progress_callback(idx, total, display_label[:80])
+            log_callback(f"⏭️ {display_label} はユーザーによりスキップされました。")
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": entry.get("url") or entry.get("webpage_url") or "",
+                    "status": "not_selected",
+                    "reason": "user_not_selected",
+                }
+            )
+            not_selected_count += 1
+            continue
+
+        track_url: str = entry.get("url") or entry.get("webpage_url") or ""
+        raw_title: str = entry.get("title") or "Unknown Title"
+        raw_artist: str = (
+            entry.get("uploader")
+            or entry.get("artist")
+            or entry.get("creator")
+            or "Unknown Artist"
+        )
+        duration: int | None = entry.get("duration")
+
+        display_label = f"{raw_artist} - {raw_title}"
+        progress_callback(idx, total, display_label[:80])
+
+        base_name = build_filename(idx, raw_artist, raw_title)
+        outtmpl = str(playlist_dir / base_name)
+
+        try:
+            track_info = fetch_track_info(track_url, ffmpeg_path)
+            source_format = track_info.get("ext") or "unknown"
+            source_bitrate = track_info.get("abr") or track_info.get("tbr")
+            if source_bitrate is not None:
+                source_desc = f"{source_format} {int(source_bitrate)}kbps"
+            else:
+                source_desc = source_format
+            log_callback(f"🎧 原音源: {source_desc}")
+            download_track(track_url, outtmpl, ffmpeg_path, audio_format, audio_bitrate)
+            filename = base_name + f".{audio_format}"
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": "downloaded",
+                    "filename": filename,
+                    "duration_seconds": duration,
+                }
+            )
+            downloaded_count += 1
+        except yt_dlp.utils.DownloadError as exc:
+            reason = classify_error(str(exc))
+            if reason in ("download_disabled", "region_restricted", "private_track"):
+                status = "skipped"
+                skipped_count += 1
+            else:
+                status = "error"
+                error_count += 1
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": status,
+                    "reason": reason,
+                }
+            )
+        except Exception as exc:
+            reason = classify_error(str(exc))
+            error_count += 1
+            tracks_result.append(
+                {
+                    "index": idx,
+                    "title": raw_title,
+                    "artist": raw_artist,
+                    "url": track_url,
+                    "status": "error",
+                    "reason": reason,
+                }
+            )
+
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    metadata = {
+        "playlist_url": playlist_url,
+        "playlist_title": playlist_title,
+        "downloaded_at": now_utc,
+        "total_tracks": total,
+        "downloaded_count": downloaded_count,
+        "skipped_count": skipped_count,
+        "not_selected_count": not_selected_count,
+        "error_count": error_count,
+        "tracks": tracks_result,
+    }
+    save_metadata(playlist_dir, metadata)
+    report_path = save_report(playlist_dir, metadata)
+
+    log_callback("✅ ダウンロード処理が完了しました。")
+    log_callback(f"📁 保存先: {playlist_dir}")
+    log_callback(f"📄 レポート: {report_path}")
+
+    return metadata, report_path
 
     log_callback(f"📋 プレイリスト: {playlist_title}")
     log_callback(f"🔍 {total} 曲 を解析中...")
@@ -325,6 +459,72 @@ def run_gui() -> None:
         url_entry.config(state=state)
         output_entry.config(state=state)
 
+    def show_track_selection_dialog(playlist_info: dict) -> list[int] | None:
+        entries = playlist_info.get("entries") or []
+        if not entries:
+            messagebox.showerror("エラー", "プレイリストに曲が含まれていません。")
+            return None
+
+        dialog = tk.Toplevel(root)
+        dialog.title("ダウンロードする曲を選択")
+        dialog.geometry("700x520")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        info_label = tk.Label(dialog, text="ダウンロードする曲を選択してください。著作権情報を確認して選択できます。", anchor="w", justify="left", wraplength=680)
+        info_label.pack(fill="x", padx=12, pady=(12, 8))
+
+        button_frame = tk.Frame(dialog)
+        button_frame.pack(fill="x", padx=12, pady=(0, 8))
+        tk.Button(button_frame, text="すべて選択", command=lambda: [var.set(1) for var in checkbox_vars]).pack(side="left")
+        tk.Button(button_frame, text="すべて解除", command=lambda: [var.set(0) for var in checkbox_vars]).pack(side="left", padx=(8, 0))
+
+        canvas = tk.Canvas(dialog)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 12))
+        scrollbar.pack(side="right", fill="y", pady=(0, 12), padx=(0, 12))
+
+        checkbox_vars: list[tk.IntVar] = []
+        for idx, entry in enumerate(entries, start=1):
+            title = entry.get("title") or "Unknown Title"
+            artist = entry.get("uploader") or entry.get("artist") or entry.get("creator") or "Unknown Artist"
+            license_info = get_track_license(entry)
+            label_text = f"{idx}. {artist} - {title}  [{license_info}]"
+            var = tk.IntVar(value=1)
+            checkbox = tk.Checkbutton(scroll_frame, text=label_text, variable=var, anchor="w", justify="left", wraplength=640)
+            checkbox.pack(fill="x", padx=4, pady=2)
+            checkbox_vars.append(var)
+
+        selected_indices: list[int] = []
+
+        def on_ok() -> None:
+            nonlocal selected_indices
+            selected_indices = [idx + 1 for idx, var in enumerate(checkbox_vars) if var.get()]
+            if not selected_indices:
+                messagebox.showwarning("選択が必要です", "少なくとも1つの曲を選択してください。")
+                return
+            dialog.destroy()
+
+        def on_cancel() -> None:
+            dialog.destroy()
+
+        action_frame = tk.Frame(dialog)
+        action_frame.pack(fill="x", padx=12, pady=(0, 12))
+        tk.Button(action_frame, text="ダウンロード開始", command=on_ok, width=16).pack(side="right")
+        tk.Button(action_frame, text="キャンセル", command=on_cancel, width=10).pack(side="right", padx=(0, 8))
+
+        root.wait_window(dialog)
+        return selected_indices if selected_indices else None
+
     def on_start() -> None:
         playlist_url = url_entry.get().strip()
         if not playlist_url:
@@ -340,6 +540,23 @@ def run_gui() -> None:
                 return
 
         set_controls(False)
+        append_log("▶ プレイリスト情報を取得中...")
+        status_var.set("プレイリスト情報取得中...")
+
+        try:
+            playlist_info = fetch_playlist_info(playlist_url)
+        except Exception as exc:
+            messagebox.showerror("エラー", f"プレイリスト情報の取得に失敗しました:\n{exc}")
+            set_controls(True)
+            return
+
+        selected_indices = show_track_selection_dialog(playlist_info)
+        if selected_indices is None:
+            set_controls(True)
+            append_log("⏹️ ダウンロードはキャンセルされました。")
+            status_var.set("準備完了")
+            return
+
         append_log("▶ ダウンロードを開始します。")
         status_var.set("ダウンロード中...")
         progress_bar.config(value=0)
@@ -355,6 +572,8 @@ def run_gui() -> None:
                     ffmpeg_path,
                     audio_format=format_var.get(),
                     audio_bitrate=bitrate_var.get(),
+                    playlist_info=playlist_info,
+                    selected_track_indices=selected_indices,
                     log_callback=gui_log,
                     progress_callback=gui_progress,
                 )
@@ -395,6 +614,68 @@ def fetch_track_info(track_url: str, ffmpeg_path: Path | None = None) -> dict:
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(track_url, download=False)
+
+
+def get_track_license(entry: dict) -> str:
+    """楽曲のライセンス情報を取得する。"""
+    return (
+        entry.get("license")
+        or entry.get("track_license")
+        or entry.get("license_url")
+        or entry.get("copyright")
+        or "不明"
+    )
+
+
+def parse_track_selection_input(selection: str, total: int) -> list[int]:
+    """ユーザー入力から選択されたトラック番号のリストを作成する。"""
+    selection = selection.strip().lower()
+    if not selection or selection in ("all", "a"):
+        return list(range(1, total + 1))
+
+    indices: set[int] = set()
+    for part in selection.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            bounds = part.split("-", 1)
+            if len(bounds) != 2:
+                raise ValueError(f"無効な選択形式です: {part}")
+            start_str, end_str = bounds
+            start = int(start_str)
+            end = int(end_str)
+            if start > end:
+                raise ValueError(f"範囲の開始が終了より大きいです: {part}")
+            indices.update(range(start, end + 1))
+        else:
+            indices.add(int(part))
+
+    selected = sorted(i for i in indices if 1 <= i <= total)
+    if not selected:
+        raise ValueError("有効なトラック番号が選択されませんでした。")
+    return selected
+
+
+def prompt_track_selection(entries: list[dict]) -> list[int]:
+    """CLI で個別または一括ダウンロードするトラックを選択する。"""
+    total = len(entries)
+    if total == 0:
+        raise ValueError("プレイリストに曲が含まれていません。")
+
+    console.print("\n📋 ダウンロードする曲を選択してください。\n")
+    for idx, entry in enumerate(entries, start=1):
+        title = entry.get("title") or "Unknown Title"
+        artist = entry.get("uploader") or entry.get("artist") or entry.get("creator") or "Unknown Artist"
+        license_info = get_track_license(entry)
+        console.print(f"{idx}. {artist} - {title}  [{license_info}]")
+
+    console.print(
+        "\nすべてダウンロードする場合は Enter を押してください。"
+        "\n特定の曲を選択する場合は、番号をカンマ区切りまたは範囲指定で入力してください。例: 1,3-5"
+    )
+    selection = input("選択: ")
+    return parse_track_selection_input(selection, total)
 
 
 def build_filename(index: int, artist: str, title: str) -> str:
@@ -492,15 +773,20 @@ def save_report(output_dir: Path, data: dict) -> Path:
         "",
         f"[SUCCESS] {data['downloaded_count']} tracks downloaded",
         f"[SKIPPED] {data['skipped_count']} tracks",
+        f"[NOT_SELECTED] {data.get('not_selected_count', 0)} tracks",
         f"[ERROR]   {data['error_count']} tracks",
         "",
-        "--- Skipped / Error Tracks ---",
+        "--- Skipped / Error / Unselected Tracks ---",
     ]
 
     for track in data["tracks"]:
         if track["status"] == "skipped":
             lines.append(
                 f"[SKIP]  {track.get('artist', '?')} - {track.get('title', '?')}  ({track.get('reason', '')})"
+            )
+        elif track["status"] == "not_selected":
+            lines.append(
+                f"[NOT_SELECTED] {track.get('artist', '?')} - {track.get('title', '?')}  ({track.get('reason', '')})"
             )
         elif track["status"] == "error":
             lines.append(
@@ -563,13 +849,20 @@ def main() -> None:
 
     console.print(Panel("[bold magenta]🎵 moby_rakuraku_downloader[/bold magenta]", expand=False))
     try:
+        playlist_info = fetch_playlist_info(playlist_url)
+        selected_indices = prompt_track_selection(playlist_info.get("entries") or [])
         download_playlist(
             playlist_url,
             output_base,
             ffmpeg_path,
             audio_format=args.format,
             audio_bitrate=args.bitrate,
+            playlist_info=playlist_info,
+            selected_track_indices=selected_indices,
         )
+    except ValueError as exc:
+        console.print(f"[bold yellow]⚠️ 入力エラー: {exc}[/bold yellow]")
+        sys.exit(1)
     except Exception as exc:
         console.print(f"[bold red]❌ エラー: {exc}[/bold red]")
         sys.exit(1)

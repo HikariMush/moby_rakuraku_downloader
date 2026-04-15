@@ -4,8 +4,10 @@ from unittest.mock import patch
 from pathlib import Path
 from downloader import (
     build_filename,
+    download_playlist,
     download_track,
     parse_args,
+    parse_track_selection_input,
     prompt_for_playlist_url,
     sanitize_filename,
     validate_audio_settings,
@@ -78,6 +80,48 @@ class TestDownloader(unittest.TestCase):
     @patch('builtins.input', return_value=' https://soundcloud.com/user/sets/test ')
     def test_prompt_for_playlist_url_strips_value(self, mock_input):
         self.assertEqual(prompt_for_playlist_url(), 'https://soundcloud.com/user/sets/test')
+
+    def test_parse_track_selection_input_all(self):
+        self.assertEqual(parse_track_selection_input('', 3), [1, 2, 3])
+
+    def test_parse_track_selection_input_range_and_list(self):
+        self.assertEqual(parse_track_selection_input('1,3-4', 5), [1, 3, 4])
+
+    def test_parse_track_selection_input_invalid(self):
+        with self.assertRaises(ValueError):
+            parse_track_selection_input('a,b', 3)
+
+    @patch('downloader.fetch_track_info')
+    @patch('downloader.download_track')
+    def test_download_playlist_selected_tracks(self, mock_download_track, mock_fetch_track_info):
+        mock_fetch_track_info.return_value = {'ext': 'mp3', 'abr': 192}
+        playlist_info = {
+            'title': 'Test Playlist',
+            'entries': [
+                {'url': 'https://soundcloud.com/track1', 'title': 'Track 1', 'uploader': 'Artist 1'},
+                {'url': 'https://soundcloud.com/track2', 'title': 'Track 2', 'uploader': 'Artist 2'},
+                {'url': 'https://soundcloud.com/track3', 'title': 'Track 3', 'uploader': 'Artist 3'},
+            ],
+        }
+
+        metadata, report_path = download_playlist(
+            'https://soundcloud.com/user/sets/test',
+            Path('/tmp'),
+            Path('/usr/bin/ffmpeg'),
+            audio_format='mp3',
+            audio_bitrate='192',
+            playlist_info=playlist_info,
+            selected_track_indices=[1, 3],
+            log_callback=lambda msg: None,
+            progress_callback=lambda current, total, track_info: None,
+        )
+
+        self.assertEqual(metadata['downloaded_count'], 2)
+        self.assertEqual(metadata['not_selected_count'], 1)
+        self.assertEqual(metadata['total_tracks'], 3)
+        self.assertEqual(metadata['tracks'][1]['status'], 'not_selected')
+        self.assertEqual(metadata['tracks'][1]['reason'], 'user_not_selected')
+        self.assertTrue(report_path.exists())
 
 
 if __name__ == '__main__':
