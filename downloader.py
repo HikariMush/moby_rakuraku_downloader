@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
 moby_rakuraku_downloader - SoundCloud プレイリスト一括ダウンローダー
+
+このツールは著作権法および SoundCloud の利用規約を遵守して使用してください。
+著作権で保護された楽曲のダウンロードは、権利者の許可がある場合に限ります。
 """
 
 import argparse
