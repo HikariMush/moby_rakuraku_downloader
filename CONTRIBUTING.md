@@ -23,6 +23,7 @@
 
 - タグは `vX.Y.Z` の形式で作成する
 - タグをリモートにプッシュすると GitHub Actions がリリースを自動生成する
+- GitHub Actions は `dist/moby_rakuraku_downloader.exe` をビルドし、リリースアセットとしてアップロードする
 - 自動生成されるリリース本文には以下を含める
   - `README_BEGINNER.md` へのリンク
   - `README_DEVELOPER.md` へのリンク
